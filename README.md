@@ -60,7 +60,7 @@ Meeting - 2025-01-15 14:00
 
 ## Authors
 
-- Your Name
+- walik7496
 - [Telegram API Documentation](https://core.telegram.org/bots/api)
 - [Google Apps Script Documentation](https://developers.google.com/apps-script)
 
