@@ -17,7 +17,6 @@ function doPost(e) {
     var text = data.message.text;
 
     if (text.startsWith("/add")) {
-      // Parse the text to extract reminder details
       var params = text.substring(5).split("|");
       if (params.length < 2) {
         sendMessage(chatId, "Invalid format. Use: /add text | YYYY-MM-DD HH:mm");
@@ -31,11 +30,9 @@ function doPost(e) {
         return;
       }
 
-      // Save the reminder
       saveReminder(chatId, reminderText, reminderTime);
       sendMessage(chatId, `Reminder added: "${reminderText}" at ${reminderTime}`);
     } else if (text.startsWith("/list")) {
-      // Fetch and display all reminders for the user
       var reminders = getReminders(chatId);
       if (reminders.length === 0) {
         sendMessage(chatId, "You have no active reminders.");
@@ -48,7 +45,6 @@ function doPost(e) {
       });
       sendMessage(chatId, message);
     } else if (text.startsWith("/delete")) {
-      // Delete a specific reminder by index
       var index = parseInt(text.substring(8).trim());
       if (deleteReminder(chatId, index)) {
         sendMessage(chatId, "Reminder successfully deleted.");
@@ -56,11 +52,9 @@ function doPost(e) {
         sendMessage(chatId, "Could not find a reminder with that number.");
       }
     } else if (text.startsWith("/cleartriggers")) {
-      // Clear all triggers for the user
       clearAllTriggers();
       sendMessage(chatId, "All your reminders have been cleared.");
     } else if (text.startsWith("/startv")) {
-      // Display a welcome message
       sendMessage(
         chatId,
         "Hello! I am a reminder bot. Here's what I can do:\n" +
@@ -70,7 +64,6 @@ function doPost(e) {
         "4. Clear all triggers: /cleartriggers"
       );
     } else {
-      // Handle unrecognized commands
       sendMessage(chatId, "I don't understand. Try using /start.");
     }
   } catch (error) {
@@ -82,7 +75,7 @@ function doPost(e) {
 function saveReminder(chatId, text, time) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   sheet.appendRow([chatId, text, time]);
-  createTrigger(chatId, text, time);
+  createTriggerForRow(sheet.getLastRow());
 }
 
 // Get all reminders for a specific user
@@ -111,27 +104,34 @@ function deleteReminder(chatId, index) {
       return row[0] == chatId && row[1] == userReminders[index - 1][1] && row[2] == userReminders[index - 1][2];
     });
     if (reminderRow !== -1) {
-      sheet.deleteRow(reminderRow + 1); // Add 1 because rows are 1-indexed
-      deleteReminderTrigger(chatId, userReminders[index - 1][1], userReminders[index - 1][2]);
+      sheet.deleteRow(reminderRow + 1);
+      deleteReminderTrigger(reminderRow + 1);
       return true;
     }
   }
   return false;
 }
 
-// Create a time-based trigger for the reminder
-function createTrigger(chatId, text, time) {
-  ScriptApp.newTrigger("sendReminder")
-    .timeBased()
-    .at(time)
-    .create();
+// Create a time-based trigger for a specific row
+function createTriggerForRow(row) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var data = sheet.getRange(row, 1, 1, 3).getValues()[0];
+  var chatId = data[0];
+  var text = data[1];
+  var time = new Date(data[2]);
+
+  if (!isNaN(time.getTime())) {
+    ScriptApp.newTrigger("sendReminder")
+      .timeBased()
+      .at(time)
+      .create();
+  }
 }
 
 // Clear all triggers
 function clearAllTriggers() {
   var triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(function(trigger) {
-    Logger.log(`Deleting trigger: ${trigger.getUniqueId()}`);
     ScriptApp.deleteTrigger(trigger);
   });
 }
@@ -139,16 +139,20 @@ function clearAllTriggers() {
 // Send the reminder message when the trigger fires
 function sendReminder() {
   try {
-    // Retrieve the chatId and text dynamically from the stored reminders
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     var data = sheet.getDataRange().getValues();
-    
-    // Look for the most recent reminder
-    var reminder = data[data.length - 1]; // Last reminder in the sheet (based on when it was added)
-    var chatId = reminder[0];
-    var text = reminder[1];
-    
-    sendMessage(chatId, `🔔 Reminder: ${text}`);
+
+    data.forEach(function (row, index) {
+      var chatId = row[0];
+      var text = row[1];
+      var time = new Date(row[2]);
+      var status = row[3];
+
+      if (!status && time <= new Date()) {
+        sendMessage(chatId, `🔔 Reminder: ${text}`);
+        sheet.getRange(index + 1, 4).setValue("done");
+      }
+    });
   } catch (e) {
     Logger.log("Error in sendReminder: " + e.message);
   }
@@ -158,4 +162,14 @@ function sendReminder() {
 function sendMessage(chatId, text) {
   var url = apiUrl + "/sendMessage?chat_id=" + chatId + "&text=" + encodeURIComponent(text);
   UrlFetchApp.fetch(url);
+}
+
+// Delete a specific trigger by row
+function deleteReminderTrigger(row) {
+  var triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === "sendReminder") {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
 }
